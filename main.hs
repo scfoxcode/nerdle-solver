@@ -31,18 +31,18 @@ getOperator (TokenOperator op) = op
 compareOperatorPriority :: Token -> Token -> Bool
 compareOperatorPriority a b 
     | (isValue a) || (isValue b) = False
-    | otherwise = do
-    let indexA = elemIndex (getOperator a) allOperators
-    let indexB = elemIndex (getOperator b) allOperators
-    if indexA == Nothing || indexB == Nothing
-        then False
-        else indexA <= indexB 
+    | isNothing indexA || isNothing indexB = False
+    | otherwise = indexA <= indexB 
+    where
+        indexA = elemIndex (getOperator a) allOperators
+        indexB = elemIndex (getOperator b) allOperators
+
 
 -- Finds the operator with the highest precidence in the tokens
 findPriorityOperator :: Int -> Maybe (Token, Int) -> [Token] -> Maybe (Token, Int)
 findPriorityOperator index found [] = found
 findPriorityOperator index found tokens
-    | isValue $ tokens !! 0 = findPriorityOperator newIndex found remaining 
+    | isValue thisToken = findPriorityOperator newIndex found remaining 
     | isNothing found = findPriorityOperator newIndex (Just (thisToken, index)) remaining 
     | otherwise = do
     foundValue <- found
@@ -54,19 +54,17 @@ findPriorityOperator index found tokens
         remaining = tail tokens
         thisToken = head tokens
 
-
+-- Produce tokens from the raw strings
 -- This function is broken as it never creates TokenValue
 tokenize :: String -> String -> [Token] -> [Token]
-tokenize input part tokens = do
-    let value = input !! 0
-    let reducedInput = tail input
-    if (length input) < 1
-        then tokens
-        else do
-            let isOperator = elem (input !! 0) allOperators
-            if isOperator
-                then tokenize reducedInput "" (concat [tokens, [TokenOperator value]])
-                else tokenize reducedInput (part ++ [value]) tokens 
+tokenize input part tokens 
+    | (length input) < 1 = tokens
+    | elem first allOperators =
+        tokenize remaining "" (concat [tokens, [TokenOperator first]])
+    | otherwise = tokenize remaining (part ++ [first]) tokens 
+    where
+        first = head input
+        remaining = tail input
 
 evaluateTokens :: [Token] -> Int
 evaluateTokens tokens = do
