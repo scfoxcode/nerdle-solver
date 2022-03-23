@@ -1,4 +1,4 @@
-expressions.txt
+*.txt
 main
 main.hi
 main.o

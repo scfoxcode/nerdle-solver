@@ -6,7 +6,7 @@ import Data.List
 import Data.Text (splitOn, unpack, pack, Text) 
 import Text.Read
 
-wordLength = 6
+wordLength = 8
 
 allNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 allOperators = ['/', '*', '+', '-']
@@ -85,29 +85,60 @@ tokenize input part tokens
         first = head input
         remaining = tail input
 
+nerdleDivide :: Int -> Int -> Maybe Int
+nerdleDivide x y 
+    | x < y = Nothing
+    | y == 0 = Nothing
+    | (rem x y) /= 0 = Nothing 
+    | otherwise = Just (div left right)
+    where
+        left = fromIntegral x 
+        right = fromIntegral y 
+
 -- Takes a token and two value operators, applying them and returning a new result token
-performCalculation :: Token -> Token -> Token -> Token
+performCalculation :: Token -> Token -> Token -> Maybe Token
 performCalculation (TokenOperator op) (TokenValue left) (TokenValue right)
-    | op == '/' = TokenValue (left / right)
-    | op == '*' = TokenValue (left * right)
-    | op == '+' = TokenValue (left + right)
-    | op == '-' = TokenValue (left - right)
-    | otherwise = TokenValue 100000 -- Another massive hack, we need error handling
+    | op == '/' = do
+        let result = nerdleDivide left right 
+        if isNothing result
+            then Nothing
+            else do
+                divisionResult <- result
+                Just (TokenValue divisionResult)
+    | op == '*' = Just (TokenValue (left * right))
+    | op == '+' = Just (TokenValue (left + right))
+    | op == '-' = Just (TokenValue (left - right))
+    | otherwise = Nothing 
     
+-- tests if index is valid for operator in list
+isOperatorIndexValid :: [Token] -> Int -> Bool
+isOperatorIndexValid tokens index
+    | index < 1 || index >= (tLength -1) || tLength < 3 = False
+    | otherwise = True
+    where tLength = length tokens
 
 -- recurse over operators
-evaluateTokens :: [Token] -> Int
+evaluateTokens :: [Token] -> Maybe Int
 evaluateTokens tokens 
     | (length tokens) == 1 =
         if isValue token
-            then getValue token     
-            else 0  -- hack, we need proper error handling
+            then Just (getValue token)     
+            else Nothing 
     | otherwise = do
-        let index = findPriorityOperator 0 Nothing tokens       
-        if isNothing index
-            then 0 -- another hack
+        let op = findPriorityOperator 0 Nothing tokens       
+    
+        if isNothing op then Nothing 
+        else do
+            operator <- op
+            let index = snd operator
+            let valid = isOperatorIndexValid tokens index
+            if not valid then Nothing
             else do
-                1 
+                let result = performCalculation (tokens !! index) (tokens !! (index - 1)) (tokens !! (index + 1)) 
+                resultValue <- result
+                if isNothing result then Nothing 
+                else 
+                    evaluateTokens (concat [take (index - 1) tokens, [resultValue], drop (index + 2) tokens]) 
         
     where token = head tokens
 
@@ -123,13 +154,21 @@ splitOnEquals expression = do
             (unpack $ result !! 0, unpack $ result !! 1)
         else ("1", "0") -- Should never get here but return false expression if we do
 
+-- Compare two maybe ints for equality, got to be a default way of doing this
+areIntsEqual :: Maybe Int -> Maybe Int -> Bool
+areIntsEqual Nothing b = False
+areIntsEqual a Nothing = False
+areIntsEqual (Just a) (Just b) = a == b
+
 -- Check if an equation is correct
 equalityCheck :: String -> Bool
 equalityCheck equation = do
     let sides = splitOnEquals equation 
-    let left = tokenize (fst sides) "" []
-    let right = tokenize (snd sides) "" []
-    (evaluateTokens left) == (evaluateTokens right)
+    let left = evaluateTokens $ tokenize (fst sides) "" []
+    let right = evaluateTokens $ tokenize (snd sides) "" []
+    if isNothing left || isNothing right
+        then False
+        else areIntsEqual left right 
 
 -- END EVALUATE STRING EXPRESSION FUNCTIONS --
 
