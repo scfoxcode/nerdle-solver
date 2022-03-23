@@ -1,9 +1,10 @@
 module Main (main) where
 import System.IO
-import Data.Maybe (isNothing)
+import Data.Maybe (fromJust, isNothing)
 import Control.Monad.State
 import Data.List
 import Data.Text (splitOn, unpack, pack, Text) 
+import Text.Read
 
 wordLength = 6
 
@@ -23,6 +24,8 @@ isOperator (TokenOperator _) = True
 isOperator _ = False
 getOperator :: Token -> Char
 getOperator (TokenOperator op) = op
+getValue :: Token -> Int 
+getValue (TokenValue val) = val 
 
 
 -- BEGIN EVALUATE STRING EXPRESSION FUNCTIONS --
@@ -54,25 +57,64 @@ findPriorityOperator index found tokens
         remaining = tail tokens
         thisToken = head tokens
 
+-- build new token list with a number added 
+addNumber :: String -> [Token] -> [Token]
+addNumber value tokens = do
+    let num = readMaybe value :: Maybe Int
+    if isNothing num 
+        then tokens
+        else concat [tokens, [TokenValue (fromJust num)]]
+
+-- build new token list with a operator added
+addOp :: Char -> [Token] -> [Token]
+addOp operator tokens = concat [tokens, [TokenOperator operator]]
+
 -- Produce tokens from the raw strings
--- This function is broken as it never creates TokenValue
 tokenize :: String -> String -> [Token] -> [Token]
 tokenize input part tokens 
-    | (length input) < 1 = tokens
+    | (length input) < 1 = if (length part) > 0 then addNumber part tokens else tokens
     | elem first allOperators =
-        tokenize remaining "" (concat [tokens, [TokenOperator first]])
+        if (length part) > 0
+            then do
+                let output = addOp first (addNumber part tokens)
+                tokenize remaining "" output
+        else
+            tokenize remaining "" (addOp first tokens)
     | otherwise = tokenize remaining (part ++ [first]) tokens 
     where
         first = head input
         remaining = tail input
 
+-- Takes a token and two value operators, applying them and returning a new result token
+performCalculation :: Token -> Token -> Token -> Token
+performCalculation (TokenOperator op) (TokenValue left) (TokenValue right)
+    | op == '/' = TokenValue (left / right)
+    | op == '*' = TokenValue (left * right)
+    | op == '+' = TokenValue (left + right)
+    | op == '-' = TokenValue (left - right)
+    | otherwise = TokenValue 100000 -- Another massive hack, we need error handling
+    
+
+-- recurse over operators
 evaluateTokens :: [Token] -> Int
-evaluateTokens tokens = do
-    5
+evaluateTokens tokens 
+    | (length tokens) == 1 =
+        if isValue token
+            then getValue token     
+            else 0  -- hack, we need proper error handling
+    | otherwise = do
+        let index = findPriorityOperator 0 Nothing tokens       
+        if isNothing index
+            then 0 -- another hack
+            else do
+                1 
+        
+    where token = head tokens
 
 substring :: Int -> Int -> String -> String
 substring i j k = take (j - i) (drop i k)
 
+-- Splits the equation into it's left and right sides
 splitOnEquals :: String -> (String, String)
 splitOnEquals expression = do
     if (elem '=' expression) 
@@ -81,8 +123,13 @@ splitOnEquals expression = do
             (unpack $ result !! 0, unpack $ result !! 1)
         else ("1", "0") -- Should never get here but return false expression if we do
 
+-- Check if an equation is correct
 equalityCheck :: String -> Bool
-equalityCheck equation = True 
+equalityCheck equation = do
+    let sides = splitOnEquals equation 
+    let left = tokenize (fst sides) "" []
+    let right = tokenize (snd sides) "" []
+    (evaluateTokens left) == (evaluateTokens right)
 
 -- END EVALUATE STRING EXPRESSION FUNCTIONS --
 
@@ -127,7 +174,7 @@ isLegal :: String -> Bool
 isLegal value
     | not $ (length $ filter (\x -> x == '=') value) == 1 = False -- Must have 1 equals
     | hasNoOperators value == True = False -- Must have >0 operators 
-    | otherwise = filterSymmetrical value 
+    | otherwise = filterSymmetrical value && equalityCheck value
 
 -- First pass removing incorrect expressions from the output
 removeClearlyWrongSolutions :: [String] -> [String]
