@@ -8,12 +8,7 @@ import Text.Read
 
 wordLength = 8
 maxDigits = 3
-
-allNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 allOperators = ['/', '*', '+', '-']
-allPossibleValues = concat [allNumbers, allOperators, ['=']]
-
-numbersExcludingZero = filter (\c -> not $ c == '0') allNumbers
 
 data Token = TokenValue Int | TokenOperator Char
     deriving (Show)
@@ -42,7 +37,7 @@ getLength (TokenValue val)
     | val < 10 = 1
     | val < 100 = 2
     | val < 1000 = 3
-    | otherwise = 3 -- See, not good
+    | otherwise = 4 -- See, not good
 
 type TokenEquation = ([Token], [Token])
 type TokenExpression = [Token]
@@ -87,34 +82,6 @@ findPriorityOperator index found tokens
         newIndex = index + 1
         remaining = tail tokens
         thisToken = head tokens
-
--- build new token list with a number added 
-addNumber :: String -> [Token] -> [Token]
-addNumber value tokens = do
-    let num = readMaybe value :: Maybe Int
-    if isNothing num 
-        then tokens
-        else concat [tokens, [TokenValue (fromJust num)]]
-
--- build new token list with a operator added
-addOp :: Char -> [Token] -> [Token]
-addOp operator tokens = concat [tokens, [TokenOperator operator]]
-
--- Produce tokens from the raw strings
-tokenize :: String -> String -> [Token] -> [Token]
-tokenize input part tokens 
-    | (length input) < 1 = if (length part) > 0 then addNumber part tokens else tokens
-    | elem first allOperators =
-        if (length part) > 0
-            then do
-                let output = addOp first (addNumber part tokens)
-                tokenize remaining "" output
-        else
-            tokenize remaining "" (addOp first tokens)
-    | otherwise = tokenize remaining (part ++ [first]) tokens 
-    where
-        first = head input
-        remaining = tail input
 
 nerdleDivide :: Int -> Int -> Maybe Int
 nerdleDivide x y 
@@ -173,18 +140,6 @@ evaluateTokens tokens
         
     where token = head tokens
 
-substring :: Int -> Int -> String -> String
-substring i j k = take (j - i) (drop i k)
-
--- Splits the equation into it's left and right sides
-splitOnEquals :: String -> (String, String)
-splitOnEquals expression = do
-    if (elem '=' expression) 
-        then do
-            let result = splitOn (pack "=") (pack expression)
-            (unpack $ result !! 0, unpack $ result !! 1)
-        else ("1", "0") -- Should never get here but return false expression if we do
-
 -- Compare two maybe ints for equality, got to be a default way of doing this
 areIntsEqual :: Maybe Int -> Maybe Int -> Bool
 areIntsEqual Nothing b = False
@@ -241,10 +196,10 @@ buildNextTokens (Just (TokenOperator op)) len = buildNumberTokens (buildValidNum
 -- Builds all possible expressions of a given length, whether they are valid or not
 buildExpressions :: Int -> Int -> TokenExpression -> [TokenExpression]
 buildExpressions remaining maxLength acc
-    | remaining < 0 = [acc]
+    | remaining < 0 = [acc] -- Should never happen but I'm paranoid
 buildExpressions 0 maxLength acc = [acc] 
 buildExpressions remaining maxLength acc = do
-    let values = buildNextTokens prev remaining  -- Need to reduce remaining on line below
+    let values = buildNextTokens prev remaining 
     concatMap (\x -> buildExpressions (remaining - getLength x) maxLength (acc ++ [x])) values
     where
         prev = if (length acc /= 0) then Just (last acc) else Nothing 
@@ -275,4 +230,6 @@ main = do
     let validEquations = filter equalityCheck buildAllEquations
     let printableEquations = map stringEquation validEquations
     mapM_ (\x -> hPutStrLn outfile x) printableEquations 
-    
+    -- Super weird, in ghci it's fine
+    -- But compiled, the file closes before writing is finished
+    mapM_ (\x -> hPutStrLn outfile "cheese") [1..1000] -- super hack
