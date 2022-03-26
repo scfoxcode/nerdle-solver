@@ -7,6 +7,7 @@ import Data.Text (splitOn, unpack, pack, Text)
 import Text.Read
 
 wordLength = 8
+maxDigits = 3
 
 allNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 allOperators = ['/', '*', '+', '-']
@@ -15,6 +16,7 @@ allPossibleValues = concat [allNumbers, allOperators, ['=']]
 numbersExcludingZero = filter (\c -> not $ c == '0') allNumbers
 
 data Token = TokenValue Int | TokenOperator Char
+    deriving (Show)
 isValue :: Token -> Bool
 isValue (TokenValue _) = True
 isValue _ = False
@@ -22,11 +24,40 @@ isValue _ = False
 isOperator :: Token -> Bool
 isOperator (TokenOperator _) = True
 isOperator _ = False
+
 getOperator :: Token -> Char
 getOperator (TokenOperator op) = op
+
+getString :: Token -> String
+getString (TokenOperator op) = [op]
+getString (TokenValue val) = show val 
+
 getValue :: Token -> Int 
 getValue (TokenValue val) = val 
 
+-- Bad function but easiest way to do it for nerdles case
+getLength :: Token -> Int
+getLength (TokenOperator _) = 1
+getLength (TokenValue val)
+    | val < 10 = 1
+    | val < 100 = 2
+    | val < 1000 = 3
+    | otherwise = 3 -- See, not good
+
+type TokenEquation = ([Token], [Token])
+type TokenExpression = [Token]
+
+getStringExpr :: TokenExpression -> String
+getStringExpr expr = concatMap getString expr
+
+-- Returns a string representation of the equation
+stringEquation :: TokenEquation -> String
+stringEquation (left, right) = (getStringExpr left) ++ "=" ++ (getStringExpr right)
+
+lenExpr :: TokenExpression -> Int
+lenExpr expr = foldl (\acc ex -> acc + (getLength ex)) 0 expr
+
+data Tree = Empty | Node 
 
 -- BEGIN EVALUATE STRING EXPRESSION FUNCTIONS --
 
@@ -161,71 +192,87 @@ areIntsEqual a Nothing = False
 areIntsEqual (Just a) (Just b) = a == b
 
 -- Check if an equation is correct
-equalityCheck :: String -> Bool
+equalityCheck :: TokenEquation -> Bool
 equalityCheck equation = do
-    let sides = splitOnEquals equation 
-    let left = evaluateTokens $ tokenize (fst sides) "" []
-    let right = evaluateTokens $ tokenize (snd sides) "" []
+    let left = evaluateTokens (fst equation) 
+    let right = evaluateTokens (snd equation) 
     if isNothing left || isNothing right
         then False
         else areIntsEqual left right 
 
 -- END EVALUATE STRING EXPRESSION FUNCTIONS --
 
--- Allowed values based on character index and previous value
-allowedValues :: Int -> Char -> [Char]
-allowedValues index prev
-    | index >= (wordLength -1) = allNumbers
-allowedValues index '=' = allNumbers 
-allowedValues index '/' = numbersExcludingZero -- Rule out divide by zero
-allowedValues index prev
-    | elem prev allOperators = allNumbers
-    | otherwise = allPossibleValues
+-- START EXPRESSION GENERATION --
 
--- Build strings that match basic rules
-buildExpression :: Int -> Char -> String -> [String]
-buildExpression index value acc 
-    | (index >= wordLength) = [acc]
-    | otherwise = do
-        let values = allowedValues index value
-        concat $ map (\x -> buildExpression (index + 1) x (acc ++ [x])) values
+-- Returns all possible TokenValues of specified length
+buildNumberTokensLen :: Int -> [Token]
+buildNumberTokensLen 0 = []
+buildNumberTokensLen 1 = map TokenValue [0..9]
+buildNumberTokensLen len = map TokenValue [(10 ^ (len - 1))..(10 ^ len - 1)] 
 
--- Build strings for all valid starting numbers
-buildAllStrings :: [Char] -> [String]
-buildAllStrings values = concat $ map (\x -> buildExpression 1 x [x]) values
+-- Returns all possible TokenValues of provided lengths
+buildNumberTokens :: [Int] -> [Token]
+buildNumberTokens digitsList = concatMap buildNumberTokensLen digitsList
 
--- We have symmetry, remove all where = appears in first 4 chars
--- Can only get away with this because Nerdle uses an even number of cells
-filterSymmetrical :: String -> Bool
-filterSymmetrical value
-    | index == Nothing = False
-    | index < (Just 4) = False
+-- Returns all possible TokenOperators
+buildOperatorTokens :: [Token]
+buildOperatorTokens = map TokenOperator allOperators
+
+-- Returns True if a number of len digits would be valid
+isLengthValid :: Int -> Int -> Bool
+isLengthValid len remaining
+    | len > maxDigits = False
+    | remaining - len == 1 = False
+    | len > remaining = False
     | otherwise = True
-    where index = elemIndex '=' value
 
--- Return True if the string has no operators 
-hasNoOperators :: String -> Bool
-hasNoOperators value =
-    elem True (map (\x -> elem x value) allOperators) == False 
+-- Build a list of allowed digit count
+buildValidNumLengths :: Int -> [Int]
+buildValidNumLengths 0 = []
+buildValidNumLengths rem = filter (\x -> isLengthValid x rem) [1..maxDigits]
 
--- Filter the string list to remove obviously invalid answers 
-isLegal :: String -> Bool
-isLegal value
-    | not $ (length $ filter (\x -> x == '=') value) == 1 = False -- Must have 1 equals
-    | hasNoOperators value == True = False -- Must have >0 operators 
-    | otherwise = filterSymmetrical value && equalityCheck value
+-- Returns a list of all possible next tokens TODO
+buildNextTokens :: Maybe Token -> Int -> [Token]
+buildNextTokens Nothing len = buildNumberTokens (buildValidNumLengths len) 
+    where margin = len - 2
+buildNextTokens (Just (TokenValue val)) _ = buildOperatorTokens 
+buildNextTokens (Just (TokenOperator op)) len = buildNumberTokens (buildValidNumLengths len) 
 
--- First pass removing incorrect expressions from the output
-removeClearlyWrongSolutions :: [String] -> [String]
-removeClearlyWrongSolutions inputStrings = filter isLegal inputStrings
+-- Builds all possible expressions of a given length, whether they are valid or not
+buildExpressions :: Int -> Int -> TokenExpression -> [TokenExpression]
+buildExpressions remaining maxLength acc
+    | remaining < 0 = [acc]
+buildExpressions 0 maxLength acc = [acc] 
+buildExpressions remaining maxLength acc = do
+    let values = buildNextTokens prev remaining  -- Need to reduce remaining on line below
+    concatMap (\x -> buildExpressions (remaining - getLength x) maxLength (acc ++ [x])) values
+    where
+        prev = if (length acc /= 0) then Just (last acc) else Nothing 
+        index = length acc
+
+-- Build all possible equations, whether they are valid or not
+buildEquations :: (Int, Int) -> [TokenEquation]
+buildEquations (left, right) =
+    [(lh, rh) | lh <- (buildExpressions left left []), rh <- (buildExpressions right right [])] 
+
+-- Creates a list of tuples for the number of slots on the left and right side of equals
+ofLegalSizes :: [(Int, Int)]
+ofLegalSizes =
+    foldl (\acc x -> concat [acc, [(wordLength - x, x - 1)]]) [] [2..4] -- hack half word length 
+
+-- Build equations of all legal sizes, whether they are valid or not
+buildAllEquations :: [TokenEquation]
+buildAllEquations = concatMap buildEquations ofLegalSizes 
+
+    
+-- END EXPRESSION GENERATION --
     
 main :: IO ()
 main = do
     putStrLn "Mr Anderson, Welcome back."
     putStrLn "Building expressions list. Please Standbye..."
     outfile <- openFile "expressions.txt" WriteMode
-    let rawAnswers = buildAllStrings numbersExcludingZero
-    let firstClean = removeClearlyWrongSolutions rawAnswers
-    mapM_ (\x -> hPutStrLn outfile x) firstClean
-    -- mapM_ print (buildAllStrings numbersExcludingZero)
+    let validEquations = filter equalityCheck buildAllEquations
+    let printableEquations = map stringEquation validEquations
+    mapM_ (\x -> hPutStrLn outfile x) printableEquations 
     
