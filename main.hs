@@ -3,12 +3,29 @@ import System.IO
 import Data.Maybe (fromJust, isNothing)
 import Control.Monad.State
 import Data.List
-import Data.Text (splitOn, unpack, pack, Text) 
+import Data.List.Split
+import Data.Text (unpack, pack, Text) 
 import Text.Read
 
 wordLength = 8
 maxDigits = 3
 allOperators = ['/', '*', '+', '-']
+allLegal = concat [allOperators, ['='], map (head . show) [0..9]]
+
+-- KnownData knownChars missingPosition excluded 
+-- Used to store the information we know, previously validated from user input
+data KnownData = KnownData [(Char, Int)] [Char] [Char]
+addKnownChars :: [(Char, Int)] -> KnownData -> KnownData
+addKnownChars newChars (KnownData knownChars missingPosition excluded) =
+    KnownData (concat [knownChars, newChars]) missingPosition excluded
+
+addMissingPosition :: [Char] -> KnownData -> KnownData
+addMissingPosition newChars (KnownData knownChars missingPosition excluded) =
+    KnownData knownChars (concat [missingPosition, newChars]) excluded
+
+addExcluded :: [Char] -> KnownData -> KnownData
+addExcluded newChars (KnownData knownChars missingPosition excluded) =
+    KnownData knownChars missingPosition (concat [excluded, newChars])
 
 data Token = TokenValue Int | TokenOperator Char
     deriving (Show)
@@ -219,12 +236,11 @@ ofLegalSizes =
 buildAllEquations :: [TokenEquation]
 buildAllEquations = concatMap buildEquations ofLegalSizes 
 
-    
 -- END EXPRESSION GENERATION --
-    
-main :: IO ()
-main = do
-    putStrLn "Mr Anderson, Welcome back."
+
+-- Only needed to debug expression generation issues
+debugWriteToFile :: IO ()
+debugWriteToFile = do
     putStrLn "Building expressions list. Please Standbye..."
     outfile <- openFile "expressions.txt" WriteMode
     let validEquations = filter equalityCheck buildAllEquations
@@ -232,4 +248,73 @@ main = do
     mapM_ (\x -> hPutStrLn outfile x) printableEquations 
     -- Super weird, in ghci it's fine
     -- But compiled, the file closes before writing is finished
-    mapM_ (\x -> hPutStrLn outfile "cheese") [1..1000] -- super hack
+    mapM_ (\x -> hPutStrLn outfile "ZZZZZZZZ") [1..1000] -- super hack
+
+readInt :: String -> Maybe Int
+readInt a = readMaybe a :: Maybe Int
+
+-- START RETRIEVE AND VALIDATE USER INPUT --
+validateKnownChars :: String -> Maybe [(Char, Int)]
+validateKnownChars input = do
+    let spaceSeparated = splitOn " " input
+    let validSizeStrings = filter (\x -> length x == 3) spaceSeparated
+    let tuples = map (\x -> (head x, last x)) validSizeStrings
+    let positions = map (\z -> readInt [(snd z)] :: Maybe Int) tuples  -- dot notation again?
+    if length (filter isNothing positions) > 0
+        then Nothing
+        else Just (zip (map fst tuples) (map fromJust positions))
+
+validateChars:: String -> Maybe [Char]
+validateChars input = do
+    let illegalChars = filter (\x -> isNothing (elemIndex x allLegal)) input     
+    if length illegalChars > 0
+        then Nothing
+        else Just input 
+
+getUserInputData :: IO (Maybe KnownData) 
+getUserInputData = do
+    putStrLn "Please enter the positions you've solved: <value:position>\n"
+    putStrLn "EG: You know there is a * in position 2, enter *:2 Multiple known values should be separated by spaces"
+    knownChars <- getLine
+    putStrLn "Please enter all characters you know exist, but don't have position for EG: *+51"
+    missingPosition <- getLine
+    putStrLn "Please enter all characters you know don't exist EG: *90/41"
+    excluded <- getLine
+    let vKnownChars = validateKnownChars knownChars
+    let vMissingPositions = validateChars missingPosition
+    let vExclude = validateChars excluded
+
+    if isNothing vKnownChars || isNothing vMissingPositions || isNothing vExclude
+        then return Nothing
+        else 
+            return (Just (KnownData (fromJust vKnownChars) (fromJust vMissingPositions) (fromJust vExclude)))
+    
+-- END RETRIEVE AND VALIDATE USER INPUT --
+filterFromKnown :: String -> ((Char, Int) -> Bool)
+filterFromKnown s = (\(v, p) -> (s !! (p-1) == v))
+
+-- Filter all equations using provided guess data
+stringEquationsFromGuess :: Maybe KnownData -> IO (Maybe [String])
+stringEquationsFromGuess Nothing = return Nothing
+stringEquationsFromGuess (Just (KnownData known position exclude)) = do    
+    let validEquations = filter equalityCheck buildAllEquations
+    let sEquations = map stringEquation validEquations
+    -- Can we fold over expressions? That would be sick
+    -- let one = ma 
+    -- The first thing has to be a filter or we get no where....
+    let wtf = filter (\e -> isNothing (elemIndex False (map (\k -> (filterFromKnown e) k) known))) sEquations
+    return (Just wtf)
+
+main :: IO ()
+main = do
+    putStrLn "Mr Anderson, Welcome back.\n"
+    -- debugWriteToFile
+    guessData <- getUserInputData
+    wtf <- stringEquationsFromGuess guessData
+    if isNothing wtf 
+        then putStrLn "No equations for you chief\n"
+        else do
+            let equations = fromJust wtf
+            mapM_ putStrLn equations 
+    putStrLn "Thank you\n"
+
