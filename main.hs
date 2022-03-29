@@ -14,18 +14,7 @@ allLegal = concat [allOperators, ['='], map (head . show) [0..9]]
 
 -- KnownData knownChars missingPosition excluded 
 -- Used to store the information we know, previously validated from user input
-data KnownData = KnownData [(Char, Int)] [Char] [Char]
-addKnownChars :: [(Char, Int)] -> KnownData -> KnownData
-addKnownChars newChars (KnownData knownChars missingPosition excluded) =
-    KnownData (concat [knownChars, newChars]) missingPosition excluded
-
-addMissingPosition :: [Char] -> KnownData -> KnownData
-addMissingPosition newChars (KnownData knownChars missingPosition excluded) =
-    KnownData knownChars (concat [missingPosition, newChars]) excluded
-
-addExcluded :: [Char] -> KnownData -> KnownData
-addExcluded newChars (KnownData knownChars missingPosition excluded) =
-    KnownData knownChars missingPosition (concat [excluded, newChars])
+data KnownData = KnownData [(Char, Int)] [(Char, Int)] [Char]
 
 data Token = TokenValue Int | TokenOperator Char
     deriving (Show)
@@ -254,8 +243,8 @@ readInt :: String -> Maybe Int
 readInt a = readMaybe a :: Maybe Int
 
 -- START RETRIEVE AND VALIDATE USER INPUT --
-validateKnownChars :: String -> Maybe [(Char, Int)]
-validateKnownChars input = do
+validateCharsWithPos :: String -> Maybe [(Char, Int)]
+validateCharsWithPos input = do
     let spaceSeparated = splitOn " " input
     let validSizeStrings = filter (\x -> length x == 3) spaceSeparated
     let tuples = map (\x -> (head x, last x)) validSizeStrings
@@ -269,19 +258,29 @@ validateChars input = do
     let illegalChars = filter (\x -> isNothing (elemIndex x allLegal)) input     
     if length illegalChars > 0
         then Nothing
-        else Just input 
+        else Just input
+
+isSubset :: String -> String -> Bool
+isSubset a b = null [x | x <- a, elem x b == False]
+
+allowedAtPos :: [(Char, Int)] -> String -> Bool
+allowedAtPos a b = null [x | x <- a, (b !! ((snd x) - 1)) == (fst x)] 
+
+hasNoExcludedChars :: String -> String -> Bool
+hasNoExcludedChars a b = null [x | x <- a, elem x b == True]
 
 getUserInputData :: IO (Maybe KnownData) 
 getUserInputData = do
     putStrLn "Please enter the positions you've solved: <value:position>\n"
     putStrLn "EG: You know there is a * in position 2, enter *:2 Multiple known values should be separated by spaces"
     knownChars <- getLine
-    putStrLn "Please enter all characters you know exist, but don't have position for EG: *+51"
+    putStrLn "\nPlease enter all characters you know exist, and the position they are not in <value:position>" 
     missingPosition <- getLine
-    putStrLn "Please enter all characters you know don't exist EG: *90/41"
+    putStrLn "\nPlease enter all characters you know don't exist EG: *90/41"
     excluded <- getLine
-    let vKnownChars = validateKnownChars knownChars
-    let vMissingPositions = validateChars missingPosition
+    putStrLn "\n"
+    let vKnownChars = validateCharsWithPos knownChars
+    let vMissingPositions = validateCharsWithPos missingPosition
     let vExclude = validateChars excluded
 
     if isNothing vKnownChars || isNothing vMissingPositions || isNothing vExclude
@@ -290,8 +289,10 @@ getUserInputData = do
             return (Just (KnownData (fromJust vKnownChars) (fromJust vMissingPositions) (fromJust vExclude)))
     
 -- END RETRIEVE AND VALIDATE USER INPUT --
+
 filterFromKnown :: String -> ((Char, Int) -> Bool)
 filterFromKnown s = (\(v, p) -> (s !! (p-1) == v))
+
 
 -- Filter all equations using provided guess data
 stringEquationsFromGuess :: Maybe KnownData -> IO (Maybe [String])
@@ -299,11 +300,15 @@ stringEquationsFromGuess Nothing = return Nothing
 stringEquationsFromGuess (Just (KnownData known position exclude)) = do    
     let validEquations = filter equalityCheck buildAllEquations
     let sEquations = map stringEquation validEquations
-    -- Can we fold over expressions? That would be sick
-    -- let one = ma 
     -- The first thing has to be a filter or we get no where....
-    let wtf = filter (\e -> isNothing (elemIndex False (map (\k -> (filterFromKnown e) k) known))) sEquations
-    return (Just wtf)
+    let one = filter (\e -> isNothing (elemIndex False (map (\k -> (filterFromKnown e) k) known))) sEquations
+    -- Filter out chars at positions we know cannot exist, and equations missing known cars
+    let two = filter (\e -> (isSubset (map fst position) e)) one 
+    let three = filter (\e -> (allowedAtPos position e)) two
+
+    -- Filter out equations with chars missing
+    let four = filter (\e -> (hasNoExcludedChars exclude e)) three
+    return (Just four)
 
 main :: IO ()
 main = do
