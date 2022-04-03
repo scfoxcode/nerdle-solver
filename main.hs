@@ -36,14 +36,9 @@ getString (TokenValue val) = show val
 getValue :: Token -> Int 
 getValue (TokenValue val) = val 
 
--- Bad function but easiest way to do it for nerdles case
 getLength :: Token -> Int
 getLength (TokenOperator _) = 1
-getLength (TokenValue val)
-    | val < 10 = 1
-    | val < 100 = 2
-    | val < 1000 = 3
-    | otherwise = 4 -- See, not good
+getLength (TokenValue val) = length (show val)
 
 type TokenEquation = ([Token], [Token])
 type TokenExpression = [Token]
@@ -71,7 +66,6 @@ compareOperatorPriority a b
     where
         indexA = elemIndex (getOperator a) allOperators
         indexB = elemIndex (getOperator b) allOperators
-
 
 -- Finds the operator with the highest precidence in the tokens
 findPriorityOperator :: Int -> Maybe (Token, Int) -> [Token] -> Maybe (Token, Int)
@@ -128,23 +122,19 @@ evaluateTokens tokens
         if isValue token
             then Just (getValue token)     
             else Nothing 
+    | isNothing op = Nothing
     | otherwise = do
-        let op = findPriorityOperator 0 Nothing tokens       
-    
-        if isNothing op then Nothing 
+        operator <- op
+        let index = snd operator
+        if not (isOperatorIndexValid tokens index) then Nothing
         else do
-            operator <- op
-            let index = snd operator
-            let valid = isOperatorIndexValid tokens index
-            if not valid then Nothing
-            else do
-                let result = performCalculation (tokens !! index) (tokens !! (index - 1)) (tokens !! (index + 1)) 
-                resultValue <- result
-                if isNothing result then Nothing 
-                else 
-                    evaluateTokens (concat [take (index - 1) tokens, [resultValue], drop (index + 2) tokens]) 
-        
-    where token = head tokens
+            let res = performCalculation (tokens !! index) (tokens !! (index - 1)) (tokens !! (index + 1)) 
+            if isNothing res then Nothing 
+            else 
+                evaluateTokens (concat [take (index - 1) tokens, [fromJust res], drop (index + 2) tokens]) 
+    where
+        token = head tokens
+        op = findPriorityOperator 0 Nothing tokens
 
 -- Compare two maybe ints for equality, got to be a default way of doing this
 areIntsEqual :: Maybe Int -> Maybe Int -> Bool
@@ -154,12 +144,12 @@ areIntsEqual (Just a) (Just b) = a == b
 
 -- Check if an equation is correct
 equalityCheck :: TokenEquation -> Bool
-equalityCheck equation = do
-    let left = evaluateTokens (fst equation) 
-    let right = evaluateTokens (snd equation) 
-    if isNothing left || isNothing right
-        then False
-        else areIntsEqual left right 
+equalityCheck equation = if isNothing left || isNothing right
+    then False
+    else areIntsEqual left right 
+    where
+        left = evaluateTokens (fst equation)
+        right = evaluateTokens (snd equation)
 
 -- END EVALUATE STRING EXPRESSION FUNCTIONS --
 
@@ -246,7 +236,7 @@ readInt a = readMaybe a :: Maybe Int
 validateCharsWithPos :: String -> Maybe [(Char, Int)]
 validateCharsWithPos input = do
     let spaceSeparated = splitOn " " input
-    let validSizeStrings = filter (\x -> length x == 3) spaceSeparated
+    let validSizeStrings = filter (\x -> length x == 2) spaceSeparated
     let tuples = map (\x -> (head x, last x)) validSizeStrings
     let positions = map (\z -> readInt [(snd z)] :: Maybe Int) tuples  -- dot notation again?
     if length (filter isNothing positions) > 0
@@ -271,10 +261,10 @@ hasNoExcludedChars a b = null [x | x <- a, elem x b == True]
 
 getUserInputData :: IO (Maybe KnownData) 
 getUserInputData = do
-    putStrLn "Please enter the positions you've solved: <value:position>\n"
-    putStrLn "EG: You know there is a * in position 2, enter *:2 Multiple known values should be separated by spaces"
+    putStrLn "Please enter the positions you've solved: <valPos> \n"
+    putStrLn "EG: You know there is a * in position 2, enter *2 Multiple known values should be separated by spaces"
     knownChars <- getLine
-    putStrLn "\nPlease enter all characters you know exist, and the position they are not in <value:position>" 
+    putStrLn "\nPlease enter all characters you know exist, and the position they are not in <valPos>" 
     missingPosition <- getLine
     putStrLn "\nPlease enter all characters you know don't exist EG: *90/41"
     excluded <- getLine
@@ -292,7 +282,6 @@ getUserInputData = do
 
 filterFromKnown :: String -> ((Char, Int) -> Bool)
 filterFromKnown s = (\(v, p) -> (s !! (p-1) == v))
-
 
 -- Filter all equations using provided guess data
 stringEquationsFromGuess :: Maybe KnownData -> IO (Maybe [String])
