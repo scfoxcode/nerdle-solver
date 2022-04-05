@@ -261,7 +261,7 @@ hasNoExcludedChars a b = null [x | x <- a, elem x b == True]
 
 getUserInputData :: IO (Maybe KnownData) 
 getUserInputData = do
-    putStrLn "Please enter the positions you've solved: <valPos> \n"
+    putStrLn "Please enter the positions you've solved: <valPos>"
     putStrLn "EG: You know there is a * in position 2, enter *2 Multiple known values should be separated by spaces"
     knownChars <- getLine
     putStrLn "\nPlease enter all characters you know exist, and the position they are not in <valPos>" 
@@ -304,11 +304,11 @@ main = do
     putStrLn "Mr Anderson, Welcome back.\n"
     -- debugWriteToFile
     guessData <- getUserInputData
-    wtf <- stringEquationsFromGuess guessData
-    if isNothing wtf 
+    possibleEquations <- stringEquationsFromGuess guessData
+    if isNothing possibleEquations 
         then putStrLn "No equations for you chief\n"
         else do
-            let equations = fromJust wtf
+            let equations = fromJust possibleEquations 
             mapM_ putStrLn equations 
     putStrLn "Thank you\n"
 
