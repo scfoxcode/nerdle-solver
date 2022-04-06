@@ -204,7 +204,7 @@ buildExpressions remaining maxLength acc = do
 -- Build all possible equations, whether they are valid or not
 buildEquations :: (Int, Int) -> [TokenEquation]
 buildEquations (left, right) =
-    [(lh, rh) | lh <- (buildExpressions left left []), rh <- (buildExpressions right right [])] 
+    [(lh, rh) | lh <- (buildExpressions left left []), rh <- (map (\x -> [x]) (buildNumberTokens [right]))] 
 
 -- Creates a list of tuples for the number of slots on the left and right side of equals
 ofLegalSizes :: [(Int, Int)]
